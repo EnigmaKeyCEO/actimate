@@ -4,23 +4,27 @@ const schema = a.schema({
   Folder: a
     .model({
       id: a.id(),
-      parentId: a.id().default("root").required(),
+      parentFolderId: a.id(),
+      parentFolder: a.belongsTo("Folder", "parentFolderId"),
       name: a.string().required(),
-      createdAt: a.timestamp().default(Date.now()),
-      updatedAt: a.timestamp().default(Date.now()),
-      images: a.hasMany("Image", "folderId"), // One-to-Many relationship with Image
+      createdAt: a.timestamp().default(() => Date.now()),
+      updatedAt: a.timestamp().default(() => Date.now()),
+      subfolders: a.hasMany("Folder", "parentFolderId"),
+      images: a.hasMany("Image", "folderId"),
     })
     .authorization((allow) => [
-      allow.guest().to([
-        "list",
-        "get",
-        "create",
-        "update",
-        "delete",
-        "sync",
-        "listen",
-        "search",
-      ]),
+      allow
+        .guest()
+        .to([
+          "list",
+          "get",
+          "create",
+          "update",
+          "delete",
+          "sync",
+          "listen",
+          "search",
+        ]),
       allow
         .publicApiKey()
         .to([
@@ -39,11 +43,11 @@ const schema = a.schema({
     .model({
       id: a.id(),
       name: a.string().required(),
-      folderId: a.id().required(), // Foreign key to Folder
-      folder: a.belongsTo("Folder", "folderId"), // BelongsTo relationship with Folder
-      createdAt: a.timestamp().default(Date.now()),
-      updatedAt: a.timestamp().default(Date.now()),
-      url: a.string(),
+      folderId: a.id().required(),
+      folder: a.belongsTo("Folder", "folderId"),
+      createdAt: a.timestamp().default(() => Date.now()),
+      updatedAt: a.timestamp().default(() => Date.now()),
+      url: a.string().required(),
       file: a.customType({
         bucket: a.string(),
         key: a.string().required(),
@@ -51,26 +55,30 @@ const schema = a.schema({
       }),
     })
     .authorization((allow) => [
-      allow.guest().to([
-        "list",
-        "get",
-        "create",
-        "update",
-        "delete",
-        "sync",
-        "listen",
-        "search",
-      ]),
-      allow.publicApiKey().to([
-        "list",
-        "get",
-        "create",
-        "update",
-        "delete",
-        "sync",
-        "listen",
-        "search",
-      ]),
+      allow
+        .guest()
+        .to([
+          "list",
+          "get",
+          "create",
+          "update",
+          "delete",
+          "sync",
+          "listen",
+          "search",
+        ]),
+      allow
+        .publicApiKey()
+        .to([
+          "list",
+          "get",
+          "create",
+          "update",
+          "delete",
+          "sync",
+          "listen",
+          "search",
+        ]),
     ]),
 });
 
@@ -82,7 +90,7 @@ export const data = defineData({
     defaultAuthorizationMode: "apiKey",
     // API Key is used for a.allow.public() rules
     apiKeyAuthorizationMode: {
-      expiresInDays: 30,
+      expiresInDays: 30, // API key expiration in days
     },
   },
 });
