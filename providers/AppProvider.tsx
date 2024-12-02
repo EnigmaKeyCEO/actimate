@@ -1,7 +1,23 @@
 import React from "react";
-import { Modal, Platform, Text, TouchableOpacity, View } from "react-native";
+import {
+  Modal,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { AppContext, AppContextType } from "#/contexts/AppContext";
+
+const MODAL_TYPES = {
+  default: "default",
+  info: "info",
+  warning: "warning",
+  error: "error",
+} as const;
+
+type ModalType = (typeof MODAL_TYPES)[keyof typeof MODAL_TYPES];
 
 export default function AppProvider({
   children,
@@ -22,6 +38,7 @@ export default function AppProvider({
   > | null>(null);
   const modalOnClose = React.useRef<(() => void) | null>(null);
   const modalPromiseRef = React.useRef<Promise<boolean> | null>(null);
+  const modalTypeRef = React.useRef<ModalType>("default");
 
   const [cameraPermissionStatus, requestCameraPermissions] =
     ImagePicker.useCameraPermissions();
@@ -35,6 +52,8 @@ export default function AppProvider({
     camera: cameraPermissionStatus?.status === "granted",
     mediaLibrary: mediaLibraryPermissionStatus?.status === "granted",
   });
+
+  const styles = useStyles(modalTypeRef.current);
 
   React.useEffect(() => {
     (async () => {
@@ -114,6 +133,7 @@ export default function AppProvider({
 
   const hideModal = React.useCallback(() => {
     setModalVisible(false);
+    modalTypeRef.current = "default";
     modalOnClose.current?.();
   }, []);
 
@@ -121,11 +141,13 @@ export default function AppProvider({
     async (
       title: string,
       content: React.ReactNode,
-      actions: Array<React.ReactElement<typeof TouchableOpacity>>
+      actions: Array<React.ReactElement<typeof TouchableOpacity>>,
+      type: ModalType = "default"
     ) => {
       modalPromiseRef.current = new Promise((resolve) => {
         modalOnClose.current = () => resolve(true);
       });
+      modalTypeRef.current = type;
       if (title !== "") {
         setModalTitle(title);
       }
@@ -139,12 +161,19 @@ export default function AppProvider({
             return (
               action && (
                 <TouchableOpacity
+                  style={styles.modalAction}
                   onPress={() => {
                     action.props.onPress?.();
                     hideModal();
                   }}
                 >
-                  {action.props.children}
+                  {typeof action.props.children === "string" ? (
+                    <Text style={styles.modalActionText}>
+                      {action.props.children}
+                    </Text>
+                  ) : (
+                    action.props.children
+                  )}
                 </TouchableOpacity>
               )
             );
@@ -155,7 +184,7 @@ export default function AppProvider({
       setModalVisible(true);
       return await modalPromiseRef.current;
     },
-    [hideModal]
+    [hideModal, styles]
   );
 
   const value = {
@@ -175,19 +204,20 @@ export default function AppProvider({
           transparent={true}
           animationType="fade"
           onRequestClose={hideModal}
+          onDismiss={hideModal}
+          style={styles.modalBackground}
+          presentationStyle="overFullScreen"
         >
-          <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }} />
-          <View style={{ flex: 1, backgroundColor: "white" }}>
-            {modalTitle && <Text>{modalTitle}</Text>}
+          <View style={styles.modalBackground} />
+          <View style={styles.modalContent}>
+            {modalTitle && <Text style={styles.modalTitle}>{modalTitle}</Text>}
             {typeof modalContent === "string" ? (
-              <Text>{modalContent}</Text>
+              <Text style={styles.modalContentText}>{modalContent}</Text>
             ) : (
               modalContent
             )}
             {modalActions && (
-              <View style={{ flexDirection: "row", gap: 10 }}>
-                {modalActions}
-              </View>
+              <View style={styles.modalActions}>{modalActions}</View>
             )}
           </View>
         </Modal>
@@ -196,3 +226,61 @@ export default function AppProvider({
     </AppContext.Provider>
   );
 }
+
+const modalColors: Record<ModalType, string> = {
+  default: "#FFFFFFFF",
+  info: "#0000FF22",
+  warning: "#FFFF0022",
+  error: "#FF000022",
+};
+
+const useStyles = (modalType: ModalType) => {
+  const backgroundColor = modalColors[modalType];
+  return StyleSheet.create({
+    modalBackground: {
+      flex: 1,
+      backgroundColor,
+      justifyContent: "flex-end",
+    },
+    modalTitle: {
+      fontSize: 20,
+      fontWeight: "600",
+      textAlign: "center",
+      marginBottom: 16,
+      color: Platform.select({ ios: "#000", android: "#212121" }),
+    },
+    modalContent: {
+      backgroundColor: Platform.select({ ios: "#F3F3F3", android: "white" }),
+      borderTopLeftRadius: 12,
+      borderTopRightRadius: 12,
+      padding: 16,
+      maxHeight: "80%",
+      paddingBottom: 32,
+    },
+    modalContentText: {
+      fontSize: 16,
+      textAlign: "center",
+      marginBottom: 24,
+      color: Platform.select({ ios: "#666666", android: "#757575" }),
+    },
+    modalActions: {
+      flexDirection: "column",
+      marginHorizontal: -16,
+      marginBottom: -16,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: "#CCCCCC",
+    },
+    modalAction: {
+      paddingVertical: 16,
+      alignItems: "center",
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: "#CCCCCC",
+      backgroundColor: "transparent",
+    },
+    modalActionText: {
+      color: Platform.select({ ios: "#007AFF", android: "#2196F3" }),
+      fontSize: 18,
+      fontWeight: "500",
+    },
+  });
+};
