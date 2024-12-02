@@ -7,8 +7,8 @@ const schema = a.schema({
       parentFolderId: a.id(),
       parentFolder: a.belongsTo("Folder", "parentFolderId"),
       name: a.string().required(),
-      createdAt: a.timestamp().default(() => Date.now()),
-      updatedAt: a.timestamp().default(() => Date.now()),
+      createdAt: a.timestamp(),
+      updatedAt: a.timestamp(),
       subfolders: a.hasMany("Folder", "parentFolderId"),
       images: a.hasMany("Image", "folderId"),
     })
@@ -45,8 +45,8 @@ const schema = a.schema({
       name: a.string().required(),
       folderId: a.id().required(),
       folder: a.belongsTo("Folder", "folderId"),
-      createdAt: a.timestamp().default(() => Date.now()),
-      updatedAt: a.timestamp().default(() => Date.now()),
+      createdAt: a.timestamp(),
+      updatedAt: a.timestamp(),
       url: a.string().required(),
       file: a.customType({
         bucket: a.string(),
