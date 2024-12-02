@@ -1,5 +1,5 @@
 import React from "react";
-import { Platform } from "react-native";
+import { Modal, Platform, Text, TouchableOpacity, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { AppContext, AppContextType } from "#/contexts/AppContext";
 
@@ -12,6 +12,16 @@ export default function AppProvider({
     null
   );
   const [error, setError] = React.useState<Error | null>(null);
+
+  const [modalVisible, setModalVisible] = React.useState(false);
+  const [modalContent, setModalContent] =
+    React.useState<React.ReactNode | null>(null);
+  const [modalTitle, setModalTitle] = React.useState<string | null>(null);
+  const [modalActions, setModalActions] = React.useState<Array<
+    React.ReactElement<typeof TouchableOpacity>
+  > | null>(null);
+  const modalOnClose = React.useRef<(() => void) | null>(null);
+  const modalPromiseRef = React.useRef<Promise<boolean> | null>(null);
 
   const [cameraPermissionStatus, requestCameraPermissions] =
     ImagePicker.useCameraPermissions();
@@ -65,48 +75,124 @@ export default function AppProvider({
     requestMediaLibraryPermissions,
   ]);
 
-  const takePhoto = async () => {
+  const handleImagePicked = React.useCallback(
+    async (pickerResult: ImagePicker.ImagePickerResult) => {
+      try {
+        if (pickerResult.canceled) {
+          setError(new Error("User cancelled image selection"));
+          return;
+        } else {
+          console.log("image picked", pickerResult.assets[0]);
+          setImage(pickerResult.assets[0]);
+          return pickerResult.assets[0];
+        }
+      } catch (e) {
+        console.error(e);
+        setError(e as Error);
+      }
+    },
+    [setImage, setError]
+  );
+
+  const takePhoto = React.useCallback(async () => {
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       aspect: [4, 3],
     });
 
-    handleImagePicked(result);
-  };
+    return await handleImagePicked(result);
+  }, [handleImagePicked]);
 
-  const pickImage = async () => {
+  const pickImage = React.useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       aspect: [4, 3],
       quality: 1,
     });
     return await handleImagePicked(result);
-  };
+  }, [handleImagePicked]);
 
-  const handleImagePicked = async (
-    pickerResult: ImagePicker.ImagePickerResult
-  ) => {
-    try {
-      if (pickerResult.canceled) {
-        setError(new Error("User cancelled image selection"));
-        return;
-      } else {
-        console.log("image picked", pickerResult.assets[0]);
-        setImage(pickerResult.assets[0]);
-        return pickerResult.assets[0];
+  const hideModal = React.useCallback(() => {
+    setModalVisible(false);
+    modalOnClose.current?.();
+  }, []);
+
+  const showModal = React.useCallback(
+    async (
+      title: string,
+      content: React.ReactNode,
+      actions: Array<React.ReactElement<typeof TouchableOpacity>>
+    ) => {
+      modalPromiseRef.current = new Promise((resolve) => {
+        modalOnClose.current = () => resolve(true);
+      });
+      if (title !== "") {
+        setModalTitle(title);
       }
-    } catch (e) {
-      console.error(e);
-      setError(e as Error);
-    }
-  };
+      if (content !== null) {
+        setModalContent(content);
+      }
+      if (actions !== null) {
+        const _actions = React.Children.map(
+          actions,
+          (action: React.ReactElement) => {
+            return (
+              action && (
+                <TouchableOpacity
+                  onPress={() => {
+                    action.props.onPress?.();
+                    hideModal();
+                  }}
+                >
+                  {action.props.children}
+                </TouchableOpacity>
+              )
+            );
+          }
+        );
+        setModalActions(_actions);
+      }
+      setModalVisible(true);
+      return await modalPromiseRef.current;
+    },
+    [hideModal]
+  );
 
   const value = {
     takePhoto,
     pickImage,
     image,
     error,
+    showModal,
+    hideModal,
   } as AppContextType;
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={value}>
+      <>
+        <Modal
+          visible={modalVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={hideModal}
+        >
+          <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }} />
+          <View style={{ flex: 1, backgroundColor: "white" }}>
+            {modalTitle && <Text>{modalTitle}</Text>}
+            {typeof modalContent === "string" ? (
+              <Text>{modalContent}</Text>
+            ) : (
+              modalContent
+            )}
+            {modalActions && (
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                {modalActions}
+              </View>
+            )}
+          </View>
+        </Modal>
+        {children}
+      </>
+    </AppContext.Provider>
+  );
 }

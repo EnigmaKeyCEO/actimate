@@ -4,6 +4,7 @@ import {
   TransferProgressEvent,
   UploadDataWithPathOutput,
   UploadDataWithPathInput,
+  getUrl,
 } from "@aws-amplify/storage";
 
 import { CreateImageInput, Image, ImageFileInput } from "#/types";
@@ -14,6 +15,7 @@ import useFolder from "#/hooks/useFolder";
 import useAppContext from "#/hooks/useAppContext";
 
 import amplifyOutputs from "#/amplify_outputs.json";
+import { Platform } from "react-native";
 
 const ImageProvider = ({ children }: { children: React.ReactNode }) => {
   const { image, pickImage } = useAppContext();
@@ -21,6 +23,7 @@ const ImageProvider = ({ children }: { children: React.ReactNode }) => {
   const [images, setImages] = useState<Array<Image>>([]);
   const { currentFolder } = useFolder();
   const [progress, setProgress] = useState(0);
+  const fileRef = React.useRef<File | null>(null);
 
   /**
    * Update the progress of the image upload
@@ -51,10 +54,27 @@ const ImageProvider = ({ children }: { children: React.ReactNode }) => {
         return false;
       }
 
+      const name = _img.fileName ?? Date.now().toString();
+
+      fileRef.current =
+        _img.file ??
+        (_img.uri
+          ? await fetch(_img.uri)
+              .then((res) => res.blob())
+              .then((blob) => new File([blob], name, { type: _img.mimeType }))
+          : _img.base64
+          ? new File([Buffer.from(_img.base64, "base64")], name)
+          : null);
+
+      if (!fileRef.current) {
+        console.error("No valid file data");
+        return false;
+      }
+
       try {
         const uploadDataInput: UploadDataWithPathInput = {
           path: `${currentFolder.id}/${_img.fileName}`,
-          data: _img.file!,
+          data: fileRef.current!,
           options: {
             onProgress: updateProgress,
           },
@@ -67,16 +87,22 @@ const ImageProvider = ({ children }: { children: React.ReactNode }) => {
 
         if (!s3result.path) throw new Error("Failed to upload image to S3");
 
+        const signedUrl = await getUrl({ path: s3result.path });
+
         const input: CreateImageInput = {
           folderId: currentFolder.id,
-          name: _img.fileName ?? s3result.metadata?.name ?? Date.now().toString(),
+          name,
+          url: signedUrl.url.toString(),
           file: {
             bucket: amplifyOutputs.storage.bucket_name,
             key: s3result.path,
             region: amplifyOutputs.storage.aws_region,
           } as ImageFileInput,
         };
-        return await create<CreateImageInput>(input);
+        const created = await create<CreateImageInput>(input);
+        console.log("created", created, input);
+        if (created) await getImages();
+        return created;
       } catch (error) {
         console.error("Error creating image:", error);
         return false;
