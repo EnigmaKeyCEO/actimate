@@ -16,19 +16,29 @@
 
     /* Linting */
     "strict": true,
-    "noUnusedLocals": true,
+    "noUnusedLocals": false,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
 
     /* others */
+    "allowSyntheticDefaultImports": true,
     "allowJs": true,
     "baseUrl": ".",
     "paths": {
-      "#/*": ["src/*"]
+      "#/*": ["./*"]
     },
     "esModuleInterop": true
   },
-  "include": ["src", "types"],
+  "include": [
+    "app",
+    "assets",
+    "components",
+    "hooks",
+    "models",
+    "providers",
+    "types",
+    "amplify_outputs.json"
+  ],
   "extensions": [
     ".ts",
     ".tsx",

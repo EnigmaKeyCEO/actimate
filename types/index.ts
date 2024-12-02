@@ -1,4 +1,16 @@
-export * from "./responses";
-// alias this from @aws-amplify/storage
-export type StorageUploadDataPayload = Blob | ArrayBufferView | ArrayBuffer | string;
+import { ModelFolderConnection, ModelImageConnection } from "#/graphql/API";
 
+export * from "../graphql/API";
+export * from "./ModelConnection";
+
+export interface ListFoldersResponse {
+  data: {
+    listFolders: ModelFolderConnection;
+  };
+}
+
+export interface ListImagesResponse {
+  data: {
+    listImages: ModelImageConnection;
+  };
+}

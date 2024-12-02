@@ -1,177 +1,250 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { Amplify } from "aws-amplify";
+import { fetchAuthSession } from "@aws-amplify/core";
+import amplifyOutputs from "#/amplify_outputs.json";
+import AmplifyContext from "../contexts/AmplifyContext";
+import { generateClient } from "aws-amplify/data";
+import { signIn } from "@aws-amplify/auth";
+import { getImage, listFolders, listImages } from "../graphql/queries";
 import {
-  uploadData,
-  downloadData,
-  remove,
-  list,
-  getProperties,
-  copy,
-  getUrl,
-} from "@aws-amplify/storage";
-import type {
-  DownloadDataWithPathInput,
-  DownloadDataWithPathOutput,
-  RemoveWithPathInput,
-  RemoveWithPathOutput,
-  UploadDataWithPathInput,
-  UploadDataWithPathOutput,
-} from "@aws-amplify/storage";
-import type {
-  StorageUploadDataPayload,
+  createImage,
+  createFolder,
+  deleteFolder,
+  deleteImage,
+  updateImage,
+} from "../graphql/mutations";
+import type { Schema } from "../amplify/data/resource";
+import {
   CreateFolderInput,
   CreateImageInput,
   DeleteFolderInput,
+  DeleteFolderMutation,
   DeleteImageInput,
+  DeleteImageMutation,
   Folder,
   Image,
-  ListFoldersQuery,
-  ListImagesQuery,
-  UpdateFolderInput,
+  ListFoldersResponse,
+  ListImagesResponse,
+  ModelFolderConnection,
+  ModelImageConnection,
   UpdateImageInput,
-} from "../types";
-import { Amplify } from "@aws-amplify/core";
-import outputs from "../amplify_outputs.json";
-import { generateClient } from "aws-amplify/data";
-import type { Schema } from "../amplify/data/resource";
+} from "#/types";
 
-let _client: ReturnType<typeof generateClient<Schema>>;
-
-type AmplifyContextType = {
-  // TODO: remove this once the methods are implemented
-  client: ReturnType<typeof generateClient<Schema>>; // only temporarily expose for testing
-  ready: boolean;
-  create: (
-    input: CreateImageInput | CreateFolderInput,
-    data?: StorageUploadDataPayload
-  ) => Promise<boolean>;
-  read: (id?: string) => Promise<ListImagesQuery | ListFoldersQuery | null>;
-  update: (
-    id: string,
-    data: UpdateImageInput | UpdateFolderInput
-  ) => Promise<boolean>;
-  delete: (id: DeleteImageInput | DeleteFolderInput) => Promise<boolean>;
-  list: (id: string) => Promise<Array<Image | Folder>>;
-};
-
-export const AmplifyContext = React.createContext<AmplifyContextType>({
-  ready: false, // TODO: remove this (below) once the methods are implemented
-  client: null as unknown as ReturnType<typeof generateClient<Schema>>,
-  create: async () => Promise.resolve(false),
-  read: async () => Promise.resolve(null),
-  update: async () => Promise.resolve(false),
-  delete: async () => Promise.resolve(false),
-  list: async () => Promise.resolve([]),
-});
-
-const ApiProvider = ({ children }: { children: React.ReactNode }) => {
-  const [ready, setIsConfigured] = useState(false);
-  const [client, _setClient] = useState<
-    ReturnType<typeof generateClient<Schema>> | undefined
-  >(_client);
+const AmplifyProvider = ({ children }: { children: React.ReactNode }) => {
+  const [client, setClient] = useState<ReturnType<
+    typeof generateClient<Schema>
+  > | null>(null);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  // set the client and update the global variable
-  const setClient = (c: ReturnType<typeof generateClient<Schema>>) => {
-    _setClient(c);
-    _client = c;
-  };
-
-  // initialize the app
-  const __inti__ = async () => {
+  const __init__ = async () => {
     try {
-      await Amplify.configure(outputs);
-      setClient(generateClient<Schema>());
-      setIsConfigured(true);
-    } catch (e) {
-      if (e instanceof Error) {
-        console.error("Error Initializing App", e.message);
-        setError(e);
-      } else {
-        console.error("Error Initializing App", e);
-        setError(new Error("Unknown error"));
+      Amplify.configure({
+        ...amplifyOutputs,
+        Auth: {
+          Cognito: {
+            userPoolId: amplifyOutputs.auth.user_pool_id,
+            userPoolClientId: amplifyOutputs.auth.user_pool_client_id,
+            identityPoolId: amplifyOutputs.auth.identity_pool_id,
+            allowGuestAccess: true,
+            groups: amplifyOutputs.auth.groups,
+            signUpVerificationMethod: "code",
+            loginWith: {
+              email: true,
+              phone: false
+            }
+          }
+        }
+      });
+
+      console.log("Amplify configured with outputs:", amplifyOutputs);
+      const generatedClient = generateClient<Schema>();
+      console.log("Generated Client:", generatedClient);
+
+      if (
+        !(generatedClient as ReturnType<typeof generateClient<Schema>>).graphql
+      ) {
+        throw new Error("Failed to generate client");
       }
-      return false;
+
+      setClient(generatedClient);
+      await initializeGuestAccess();
+      setReady(true);
+    } catch (e) {
+      console.error("Error Initializing App", e);
+      setError(e as Error);
     }
-    return true;
   };
 
-  // initialize the app on mount
-  React.useEffect(() => {
-    __inti__();
-  }, []);
-
-  // log the client status
-  React.useEffect(() => {
-    if (ready) {
-      if (client && client.models && client.models.Folder) {
-        console.log("App is Ready");
-      } else {
-        console.error("Error initializing App");
-      }
+  useEffect(() => {
+    if (ready === false) {
+      __init__();
     }
-  }, [ready]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
+
+  const initializeGuestAccess = async () => {
+    try {
+      const session = await fetchAuthSession();
+      if (!session.identityId) {
+        await signIn({
+          username: `guest_${Date.now()}`,
+          password: `Guest123!${Date.now()}`,
+          options: {
+            authFlowType: "USER_SRP_AUTH",
+          },
+        });
+      }
+      console.log("Guest access initialized", session);
+    } catch (error) {
+      console.error("Error initializing guest access:", error);
+      throw error;
+    }
+  };
 
   // create a new image or folder
-  const create = async (
-    input: CreateImageInput | CreateFolderInput,
-    data?: StorageUploadDataPayload
-  ) => {
-    switch (true) {
-      case (input as CreateImageInput) !== null:
-        if (!data) throw new Error("No data provided");
-        return createImage(input as CreateImageInput, data);
-      case (input as CreateFolderInput) !== null:
-        return createFolder(input);
-      default:
-        throw new Error("Invalid data type");
+  const create = async <T extends CreateImageInput | CreateFolderInput>(
+    input: T
+  ): Promise<boolean> => {
+    if (!ready) return false;
+    if ('file' in input) {
+      const response = await client?.graphql({
+        query: createImage,
+        variables: {
+          input: input as CreateImageInput,
+        },
+      });
+      return Boolean(response?.data?.createImage?.id);
+    } else {
+      const response = await client?.graphql({
+        query: createFolder,
+        variables: {
+          input: input as CreateFolderInput,
+        },
+      });
+      return Boolean(response?.data?.createFolder?.id);
     }
   };
 
-  // create a new image
-  const createImage = async (
-    input: CreateImageInput,
-    data: StorageUploadDataPayload
-  ) => {
-    const uploadDataInput: UploadDataWithPathInput = {
-      path: input.folderID,
-      data: data,
-    };
-    const response: UploadDataWithPathOutput = await uploadData(
-      uploadDataInput
-    );
-    return response.result
-      .then((result) => {
-        console.log(result);
-        return true;
-      })
-      .catch(() => false);
+  const read = async <T extends Image | Folder>(
+    id: string
+  ): Promise<T | null> => {
+    if (!ready) return null;
+    const response = await client?.graphql({
+      query: getImage,
+      variables: {
+        id,
+      },
+    });
+    return response?.data?.getImage as T | null;
   };
 
-  // create a new folder
-  const createFolder = async (input: CreateFolderInput) => {
-    // use dynamodb to create folder
-    return true;
+  const update = async <T extends Image | Folder>(
+    input: T
+  ): Promise<boolean> => {
+    if (!ready) return false;
+    const response = await client?.graphql({
+      query: updateImage,
+      variables: {
+        input: input as UpdateImageInput,
+      },
+    });
+    return Boolean(response?.data?.updateImage?.id);
   };
 
-  // stub in the rest so i can do this right:
-  // TODO: implement read, update, delete
-  const read = async () => Promise.resolve(null);
-  const update = async () => Promise.resolve(false);
-  const del = async () => Promise.resolve(false);
-  const list = async () => Promise.resolve([]);
+  const del = async <T extends Image | Folder>(input: T): Promise<boolean> => {
+    if (!ready) return false;
+    const isFolder = (input as Folder) !== null;
+    const response = await client?.graphql({
+      query: isFolder ? deleteFolder : deleteImage,
+      variables: {
+        input: isFolder
+          ? (input as DeleteFolderInput)
+          : (input as DeleteImageInput),
+      },
+    });
+    const data = response?.data;
+    return isFolder
+      ? Boolean(data as DeleteFolderMutation)
+      : Boolean(data as DeleteImageMutation);
+  };
+  const _listFolders = async (
+    folderId: string = "root"
+  ): Promise<ListFoldersResponse | null> => {
+    if (!ready) return null;
+    return client?.graphql({
+      query: listFolders,
+      variables: {
+        filter: {
+          parentId: { eq: folderId },
+        },
+      },
+    }) as Promise<ListFoldersResponse>;
+  };
+
+  const _listImages = async (
+    folderId: string = "root"
+  ): Promise<ListImagesResponse | null> => {
+    if (!ready) return null;
+    return client!.graphql({
+      query: listImages,
+      variables: {
+        filter: {
+          folderId: { eq: folderId },
+        },
+      },
+    });
+  };
+
+  const list = async <T extends Image | Folder | null>(
+    folderId: string = "root"
+  ): Promise<
+    | ModelImageConnection
+    | ModelFolderConnection
+    | (ModelImageConnection & ModelFolderConnection)
+    | null
+  > => {
+    if (!ready) return null;
+    const isFolder = "parentId" in ({} as NonNullable<T>);
+    const response = isFolder
+      ? await _listFolders(folderId)
+      : await _listImages(folderId);
+
+    if (!response?.data) {
+      return {
+        listFolders: {
+          items: [],
+          nextToken: null,
+        },
+        listImages: {
+          items: [],
+          nextToken: null,
+        },
+      } as ModelFolderConnection & ModelImageConnection;
+    }
+    return isFolder
+      ? (response as ListFoldersResponse).data.listFolders
+      : (response as ListImagesResponse).data.listImages;
+  };
 
   const value = {
     client: client!, // only temporarily expose for testing
     ready,
+    error,
     create,
     read,
     update,
     delete: del,
     list,
   };
+
+  if (error) {
+    return <div>Error initializing app: {error.message}</div>;
+  }
+
   return (
     <AmplifyContext.Provider value={value}>{children}</AmplifyContext.Provider>
   );
 };
 
-export default ApiProvider;
+export default AmplifyProvider;
